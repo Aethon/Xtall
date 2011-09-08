@@ -63,6 +63,7 @@ namespace XtallLib
                     {
                         _environment.LogStatus("debug requested from the command line; no cache management will be used");
                         proceed = true;
+                        observer.SetRunInfo(null);
                     }
                     else
                     { 
