@@ -2,7 +2,7 @@
 using System.IO;
 using System.Security.Principal;
 
-namespace Xtall
+namespace XtallLib
 {
     internal class Paths
     {
@@ -14,10 +14,13 @@ namespace Xtall
         public static readonly string ArpAlloyClientValueName = "IsAlloyClient";
         public static readonly string ArpDisplayNameValueName = "DisplayName";
         public static readonly string ArpDisplayVersionValueName = "DisplayVersion";
+        public static readonly string ArpDisplayIconValueName = "DisplayIcon";
+        public static readonly string ArpInstallDateValueName = "InstallDate";
         public static readonly string ArpUninstallStringValueName = "UninstallString";
         public static readonly string ArpPublisherValueName = "Publisher";
         public static readonly string ArpNoModifyValueName = "NoModify";
         public static readonly string ArpNoRepairValueName = "Norepair";
+
 
         public readonly string RawSoftwareRegistryPath;
         public readonly string SoftwareRegistryPath;
@@ -31,6 +34,7 @@ namespace Xtall
 
         public readonly string RawMenuPath;
         public readonly string MenuPath;
+
 
         public Paths(string visualPath, string installedName)
         {

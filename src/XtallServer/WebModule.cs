@@ -26,7 +26,7 @@ namespace XtallServer
 
             public readonly string Manifest;
 
-            public AppInfo(string virtualPath, string assetPath, string cachePath, Func<HttpRequest, string, string> parameterSelector = null, string setupName = null, string branding = null, XmlElement runInfo = null)
+            public AppInfo(string virtualPath, string assetPath, string cachePath, string installName, Func<HttpRequest, string, string> parameterSelector = null, string setupName = null, XmlElement runInfo = null)
                 : this()
             {
                 //                Guard.NotNull(virtualPath);
@@ -34,7 +34,7 @@ namespace XtallServer
                 //                Guard.NotNull(cachePath);
 
                 VirtualPath = virtualPath.TrimEnd('/').ToLower();
-                ParameterSelector = parameterSelector ?? ((r, p) => string.Format("-install \"{0}\"", p));
+                ParameterSelector = parameterSelector ?? ((r, p) => string.Format("-install: \"{0}\" \"{1}\"", installName, p));
                 CachePath = cachePath;
                 AssetPath = assetPath;
                 SetupName = setupName ?? "setup";
@@ -42,8 +42,6 @@ namespace XtallServer
                 var doc = new XmlDocument();
                 doc.Load(Path.Combine(assetPath, "manifest.xml"));
                 var root = doc.DocumentElement;
-                if (branding != null)
-                    root.SetAttribute("Branding", branding);
                 if (runInfo != null)
                     root.PrependChild(runInfo.CloneNode(true));
                 Manifest = doc.OuterXml;
@@ -53,9 +51,9 @@ namespace XtallServer
         private static readonly IDictionary<string, AppInfo> Applications = new Dictionary<string, AppInfo>();
         private static readonly ReaderWriterLockSlim InitializationLock = new ReaderWriterLockSlim();
 
-        public static void InitApplication(string virtualPath, string assetPhysicalPath, string cachePhysicalPath, Func<HttpRequest, string, string> parameterSelector, string setupName, string branding = null, XmlElement runInfo = null)
+        public static void InitApplication(string virtualPath, string assetPhysicalPath, string cachePhysicalPath, Func<HttpRequest, string, string> parameterSelector, string setupName, string installName, XmlElement runInfo = null)
         {
-            var info = new AppInfo(virtualPath, assetPhysicalPath, cachePhysicalPath, parameterSelector, setupName, branding, runInfo);
+            var info = new AppInfo(virtualPath, assetPhysicalPath, cachePhysicalPath, installName, parameterSelector, setupName, runInfo);
             InitializationLock.EnterWriteLock();
             try
             {

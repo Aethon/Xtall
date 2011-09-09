@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Xtall
+namespace XtallLib
 {
     public class XtallFileInfo
     {

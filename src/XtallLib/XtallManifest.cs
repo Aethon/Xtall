@@ -4,7 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Xml;
 
-namespace Xtall
+namespace XtallLib
 {
     public class XtallManifest
     {

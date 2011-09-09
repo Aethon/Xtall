@@ -6,9 +6,8 @@ using System.Net;
 using System.Net.Cache;
 using System.Text;
 using System.Threading;
-using System.Windows;
 
-namespace Xtall
+namespace XtallLib
 {
     public class CodeCacheManager : IDisposable
     {
@@ -17,10 +16,11 @@ namespace Xtall
         public XtallManifest Manifest { get; private set; }
 
         public string ProductFolder { get; private set; }
-        public string BrandingFolder { get; private set; }
+        public string SiteFolder { get; private set; }
         public string CacheFolder { get; private set; }
         public string RunFolder { get; private set; }
         public string Url { get; private set; }
+        public string UrlKey { get; private set; }
 
         private readonly IXtallEnvironment _environment;
 
@@ -38,26 +38,29 @@ namespace Xtall
             Url = url;
             _environment = environment;
 
-            var brandingName = string.IsNullOrWhiteSpace(manifest.Branding) ? manifest.ProductName : manifest.Branding;
+            if (manifest.ProductName == null)
+                throw new ArgumentNullException("The manifest must specify a product name");
+
+            UrlKey = Uri.EscapeDataString(url.ToLower());
 
             _environment.LogAction("determining the product folder");
-            ProductFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), manifest.MenuPath ?? "", manifest.ProductName);
+            ProductFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), manifest.ProductName);
             _environment.LogStatus("assigned the product folder as '{0}'", ProductFolder);
 
-            _environment.LogAction("determining the branding folder");
-            BrandingFolder = Path.Combine(ProductFolder, brandingName);
-            _environment.LogStatus("assigned the branding folder as '{0}'", BrandingFolder);
+            _environment.LogAction("determining the site folder");
+            SiteFolder = Path.Combine(ProductFolder, "Sites", UrlKey);
+            _environment.LogStatus("assigned the site folder as '{0}'", SiteFolder);
 
             _environment.LogAction("determining the cache folder");
-            CacheFolder = Path.Combine(ProductFolder, @"Cache");
+            CacheFolder = Path.Combine(ProductFolder, "Cache");
             _environment.LogStatus("assigned the cache folder as '{0}'", CacheFolder);
 
             _environment.LogAction("determining the run folder");
-            RunFolder = Path.Combine(BrandingFolder, "Run");
+            RunFolder = Path.Combine(ProductFolder, "Run", manifest.Md5Hash);
             _environment.LogStatus("assigned the run folder as '{0}'", RunFolder);
 
             _environment.LogAction("creating a mutex to guard the cache");
-            _mutex = new Mutex(false, "AlloyCache:" + manifest.ProductName);
+            _mutex = new Mutex(false, "XtallCacheGuard:" + manifest.ProductName);
             _environment.LogAction("acquiring the mutex to guard the cache");
             try
             {
@@ -71,7 +74,7 @@ namespace Xtall
             }
             catch (AbandonedMutexException)
             {
-                // suppressed; this is OK
+                // suppressed; this is OK (for us...prolly not for the poor sot that died)
             }
             _environment.LogStatus("acquired access to the cache");
         }

@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 
-namespace Xtall
+namespace XtallLib
 {
     public class XtallInfo
     {

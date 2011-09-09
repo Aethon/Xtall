@@ -1,8 +1,7 @@
 ﻿using System;
-using System.Threading;
 using System.Xml;
 
-namespace Xtall
+namespace XtallLib
 {
     public interface IXtallObserver
     {

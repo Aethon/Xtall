@@ -1,4 +1,4 @@
-﻿namespace Xtall
+﻿namespace XtallLib
 {
     public class XtallResult
     {

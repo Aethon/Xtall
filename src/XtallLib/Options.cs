@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Xtall
+namespace XtallLib
 {
     public class Options
     {

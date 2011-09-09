@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Threading;
 using System.Xml;
-using Xtall;
 
 namespace XtallLib
 {

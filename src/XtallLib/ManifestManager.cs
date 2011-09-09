@@ -6,7 +6,7 @@ using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Xml;
 
-namespace Xtall
+namespace XtallLib
 {
     public static class ManifestManager
     {

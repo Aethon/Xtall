@@ -2,7 +2,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Xtall
+namespace XtallLib
 {
     internal static class ShellLink
     {
