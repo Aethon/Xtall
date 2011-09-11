@@ -32,7 +32,7 @@ namespace XtallLib
             lock (_logBuilder)
             {
                 _lastActionLogged = string.Format(format, args);
-                _logBuilder.AppendFormat("[{0:4}] ", Thread.CurrentThread.ManagedThreadId);
+                _logBuilder.AppendFormat("[{0:0000}] ", Thread.CurrentThread.ManagedThreadId);
                 _logBuilder.AppendLine(_lastActionLogged);
             }
             Debug.Print(format, args);
@@ -42,7 +42,7 @@ namespace XtallLib
         {
             lock (_logBuilder)
             {
-                _logBuilder.AppendFormat("[{0:4}] ", Thread.CurrentThread.ManagedThreadId);
+                _logBuilder.AppendFormat("[{0:0000}] ", Thread.CurrentThread.ManagedThreadId);
                 _logBuilder.AppendFormat(format, args);
                 _logBuilder.AppendLine();
             }

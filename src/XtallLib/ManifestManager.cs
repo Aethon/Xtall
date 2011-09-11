@@ -131,7 +131,7 @@ namespace XtallLib
             {
                 using (var md5 = new MD5CryptoServiceProvider())
                 {
-                    using (var f = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 8192))
+                    using (var f = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Delete | FileShare.ReadWrite, 8192))
                         md5.ComputeHash(f);
                     result = string.Join("", md5.Hash.Select(x => string.Format("{0:X2}", x)).ToArray());
                 }
