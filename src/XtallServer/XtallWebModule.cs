@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Web;
@@ -10,50 +9,53 @@ using System.Xml;
 
 namespace XtallServer
 {
-    public class WebModule : IHttpModule
+    public class XtallWebModule : IHttpModule
     {
         public const string ClientFolderName = "/client/";
         public const string InfoName = "/info";
 
-        public struct AppInfo
+        private struct AppInfo
         {
             public readonly string VirtualPath;
             public readonly string AssetPath;
             public readonly string CachePath;
-            public readonly string SetupName;
 
+            public readonly string SetupName;
+            public readonly string InstalledDisplayName;
+            public readonly XmlElement RunInfo;
+
+            public readonly Func<HttpRequest, string, string> ReturnUrlSelector;
             public readonly Func<HttpRequest, string, string> ParameterSelector;
 
-            public readonly string Manifest;
-
-            public AppInfo(string virtualPath, string assetPath, string cachePath, string installName, Func<HttpRequest, string, string> parameterSelector = null, string setupName = null, XmlElement runInfo = null)
+            public AppInfo(XtallAppInfo info)
                 : this()
             {
-                //                Guard.NotNull(virtualPath);
-                //                Guard.NotNull(assetPath);
-                //                Guard.NotNull(cachePath);
+                if (info == null)
+                    throw new ArgumentNullException("info");
+                if (info.VirtualPath == null)
+                    throw new ArgumentNullException("info.VirtualPath");
+                if (info.AssetPath == null)
+                    throw new ArgumentNullException("info.AssetPath");
 
-                VirtualPath = virtualPath.TrimEnd('/').ToLower();
-                ParameterSelector = parameterSelector ?? ((r, p) => string.Format("-install: \"{0}\" \"{1}\"", installName, p));
-                CachePath = cachePath;
-                AssetPath = assetPath;
-                SetupName = setupName ?? "setup";
+                VirtualPath = info.VirtualPath.TrimEnd('/').ToLower();
+                AssetPath = info.AssetPath;
+                CachePath = info.CachePath;
 
-                var doc = new XmlDocument();
-                doc.Load(Path.Combine(assetPath, "manifest.xml"));
-                var root = doc.DocumentElement;
-                if (runInfo != null)
-                    root.PrependChild(runInfo.CloneNode(true));
-                Manifest = doc.OuterXml;
+                SetupName = info.SetupName ?? "setup";
+                InstalledDisplayName = info.InstalledDisplayName;
+                RunInfo = info.RunInfo;
+
+                ReturnUrlSelector = info.ReturnUrlSelector ?? ((r, p) => p);
+                ParameterSelector = info.ParameterSelector ?? ((r, p) => p);
             }
         }
 
         private static readonly IDictionary<string, AppInfo> Applications = new Dictionary<string, AppInfo>();
         private static readonly ReaderWriterLockSlim InitializationLock = new ReaderWriterLockSlim();
 
-        public static void InitApplication(string virtualPath, string assetPhysicalPath, string cachePhysicalPath, Func<HttpRequest, string, string> parameterSelector, string setupName, string installName, XmlElement runInfo = null)
+        public static void InitApplication(XtallAppInfo appInfo)
         {
-            var info = new AppInfo(virtualPath, assetPhysicalPath, cachePhysicalPath, installName, parameterSelector, setupName, runInfo);
+            var info = new AppInfo(appInfo);
             InitializationLock.EnterWriteLock();
             try
             {
@@ -113,20 +115,24 @@ namespace XtallServer
 
         static void ReturnSetup(HttpContext context, AppInfo info)
         {
+            var request = context.Request;
             var response = context.Response;
-
-            var installPath = new UriBuilder(context.Request.Url)
-                {
-                    Path = info.VirtualPath,
-                    Query = string.Empty,
-                    Fragment = string.Empty
-                }.Uri.ToString();
 
             response.AppendHeader("Content-Disposition", string.Format("attachment; filename={0}.exe", info.SetupName));
             response.ContentType = "application/octet-stream";
 
             var setupPath = Path.Combine(info.AssetPath, "setup.exe");
-            var parameters = info.ParameterSelector(context.Request, installPath);
+            
+            var proposedReturnUrl = new UriBuilder(request.Url)
+                                        {
+                                            Path = info.VirtualPath,
+                                            Query = string.Empty,
+                                            Fragment = string.Empty
+                                        }.Uri.ToString();
+            var installUrl = info.ReturnUrlSelector(request, proposedReturnUrl);
+            var xtallParameters = string.Format("-install \"{0}\"", installUrl);
+            var parameters = info.ParameterSelector(request, xtallParameters);
+
             if (string.IsNullOrWhiteSpace(parameters))
             {
                 // no need to rewrite
@@ -154,7 +160,7 @@ namespace XtallServer
 
         public static void WriteParameters(Stream source, string parameters, Stream destination)
         {
-            const int parameterInfoLength = 12; // should be Marshal.SizeOf(typeof(int)) * 3
+            const int parameterInfoLength = 12; // must be Marshal.SizeOf(typeof(int)) * 3
 
             var parameterBits = Encoding.UTF8.GetBytes(parameters);
             int available;
@@ -197,9 +203,30 @@ namespace XtallServer
 
         static void ReturnManifest(HttpContext context, AppInfo info)
         {
+            var manifestPath = Path.Combine(info.AssetPath, "manifest.xml");
+            var doc = new XmlDocument();
+            doc.Load(manifestPath);
+            var root = doc.DocumentElement;
+            if (root == null)
+                throw new ArgumentException(string.Format("Xtall manifest at {0} does not have a root node", manifestPath));
+
+            if (info.InstalledDisplayName != null)
+                root.SetAttribute("InstalledDisplayName", info.InstalledDisplayName);
+
+            if (info.RunInfo != null)
+            {
+                var runInfoElement = root.SelectSingleNode("RunInfo");
+                if (runInfoElement == null)
+                {
+                    runInfoElement = doc.CreateElement("RunInfo");
+                    root.PrependChild(runInfoElement);
+                }
+                runInfoElement.PrependChild(info.RunInfo.CloneNode(true));
+            }
+
             var response = context.Response;
             response.ContentType = "text/xml";
-            response.Output.Write(info.Manifest);
+            doc.Save(response.Output);
             response.End();
         }
 

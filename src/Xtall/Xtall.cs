@@ -2,10 +2,8 @@
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Xml;
 using Ionic.Zlib;
-using Xtall;
 using XtallLib;
 using CompressionMode = Ionic.Zlib.CompressionMode;
 using GZipStream = Ionic.Zlib.GZipStream;

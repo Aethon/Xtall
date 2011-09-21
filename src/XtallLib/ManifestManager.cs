@@ -26,15 +26,14 @@ namespace XtallLib
             var boot = GetRequiredAttribute(man, "Boot");
             var productName = GetRequiredAttribute(man, "ProductName");
 
-            var menuPath = man.GetAttribute("MenuPath");
-            var branding = man.GetAttribute("Branding");
+            var installedDisplayName = man.GetAttribute("InstalledDisplayName");
             var runInfo = (XmlElement)man.SelectSingleNode("/RunInfo");
             
             var files = man.SelectNodes("File")
                 .OfType<XmlElement>()
                 .Select(LoadFileInfo);
 
-            return new XtallManifest(files, boot, productName, menuPath, branding, runInfo);
+            return new XtallManifest(files, boot, productName, installedDisplayName, runInfo);
         }
 
         private static XtallFileInfo LoadFileInfo(XmlElement element)
@@ -61,16 +60,16 @@ namespace XtallLib
 
         #region Prepare
 
-        public static XtallManifest Prepare(string sourceFolder, string bootPath, string productName, string menuPath = null, string branding = null, XmlElement runInfo = null, string ignore = null)
+        public static XtallManifest Prepare(string sourceFolder, string bootPath, string productName, string installedDisplayName = null, XmlElement runInfo = null, string ignore = null)
         {
             var ignoreRegex = ignore == null ? null
-                : new Regex("^" + Regex.Escape(ignore).Replace(@"\*", ".*").Replace(@"\?", ".") + "$",
+                : new Regex("^" + string.Join("|", ignore.Split(new [] { '|' }, StringSplitOptions.RemoveEmptyEntries).Select(x => "(" + Regex.Escape(x).Replace(@"\*", ".*").Replace(@"\?", ".") + ")")) + "$",
                 RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
-            return new XtallManifest( 
+            return new XtallManifest(
                 Directory.EnumerateFiles(sourceFolder, "*.*", SearchOption.AllDirectories)
                 .Select(x => PrepareFileInfo(sourceFolder, x, ignoreRegex)).Where(x => x != null),
-                bootPath, productName, menuPath, branding, runInfo);
+                bootPath, productName, installedDisplayName, runInfo);
         }
         
         private static XtallFileInfo PrepareFileInfo(string fromFolder, string filename, Regex ignoreRegex)
@@ -101,12 +100,13 @@ namespace XtallLib
                 writer.WriteAttributeString("Boot", manifest.Boot.Filename);
                 writer.WriteAttributeString("ProductName", manifest.ProductName);
 
-                if (manifest.MenuPath != null)
-                    writer.WriteAttributeString("MenuPath", manifest.MenuPath);
-                if (manifest.Branding != null)
-                    writer.WriteAttributeString("Branding", manifest.Branding);
+                if (manifest.InstalledDisplayName != null)
+                    writer.WriteAttributeString("InstalledDisplayName", manifest.InstalledDisplayName);
+
+                writer.WriteStartElement("RunInfo");
                 if (manifest.RunInfo != null)
                     writer.WriteRaw(manifest.RunInfo.OuterXml);
+                writer.WriteEndElement();
 
                 foreach (var x in manifest.Files)
                 {

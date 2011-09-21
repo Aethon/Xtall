@@ -18,130 +18,114 @@ namespace XtallLib
     {
         private string[] _args;
         private Options _options;
-        private IXtallEnvironment _environment;
+        private XtallStrategy _strategy;
 
-        public bool Run(string[] args, Func<Action<IXtallObserver>, bool> observerFactory, IXtallEnvironment environment = null)
+        public bool Run(string[] args, XtallStrategy strategy = null)
         {
             _args = args;
             _options = new Options(args);
-            _environment = environment ?? new XtallerEnvironment();
+            _strategy = strategy ?? new XtallStrategy();
 
-            if (_options.Keyed.Keys.Contains("uninstall:"))
+            try
             {
-                try
+                _strategy.LogStatus("starting with command line: {0}", string.Join(" ", args));
+                
+                if (_options.Keyed.Keys.Contains("uninstall:"))
                 {
                     Uninstall(_options.Keyed["uninstall:"]);
-                }
-                catch (Exception ex)
-                {
-                    var state = _environment.GetCurrentState();
-                    new CantStartDialog(new CantStartViewModel
-                                            {
-                                                Entry = "This app",
-                                                Error = ex.Message,
-                                                Log = state.Text,
-                                                While = state.LastAction
-                                            }).
-                        ShowDialog();
+                    return false;
                 }
 
-                return false;
-            }
+                if (_options.Loose.Count == 0)
+                    throw new ArgumentException("Site URL was not specified on the command line");
 
+                _strategy.InternalContext.Url = _options.Loose[0];
+                var @unsafe = new Uri(_strategy.Context.Url).Scheme != "https";
 
-            var proceed = false;
-            using (var observer = new XtallObserverProxy(observerFactory, _environment))
-            {
-                try
+                // TODO: block unsafe unless environment is set up for it
+                if (_options.Keyed.ContainsKey("debug:"))
                 {
-                    _environment.LogStatus("starting with command line: {0}", string.Join(" ", args));
-
-                    if (_options.Loose.Count == 0)
-                        throw new ArgumentException("Site URL was not specified on the command line");
-
-                    var url = _options.Loose[0];
-                    var @unsafe = new Uri(url).Scheme != "https";
-
-                    // TODO: block unsafe unless environment is setup for it
-                    if (_options.Keyed.ContainsKey("debug"))
+                    _strategy.LogStatus("debug requested from the command line; no cache management will be used");
+                    _strategy.InternalContext.Manifest = ManifestManager.Load(File.ReadAllText(_options.Keyed["debug:"]));
+                    _strategy.OnVerified();
+                    _strategy.OnStatus("Debugging", 1.0);
+                    _strategy.OnSuccess();
+                }
+                else
+                { 
+                    _strategy.OnStatus("Connecting and verifying", 0);
+                    if (!@unsafe)
                     {
-                        _environment.LogStatus("debug requested from the command line; no cache management will be used");
-                        proceed = true;
-                        observer.SetRunInfo(null);
+                        _strategy.LogAction("setting the certificate validator");
+                        ServicePointManager.CheckCertificateRevocationList = true;
+                        ServicePointManager.ServerCertificateValidationCallback = CheckServerCertificate;
                     }
                     else
-                    { 
-                        if (!@unsafe)
+                    {
+                        _strategy.LogStatus("skipping server authentication checks");
+                    }
+
+                    _strategy.LogAction("getting the manifest");
+                    string manifestXml;
+                    using (var ms = new MemoryStream())
+                    {
+                        _strategy.GetResource(_strategy.Context.Url + "/info", ms, t => t.StartsWith("text/xml"));
+                        ms.Seek(0, SeekOrigin.Begin);
+                        using (var sr = new StreamReader(ms))
+                            manifestXml = sr.ReadToEnd();
+                    }
+
+                    _strategy.LogAction("loading the manifest (first 100 characters are '{0}')", manifestXml.Substring(0, 100));
+                    _strategy.InternalContext.Manifest = ManifestManager.Load(manifestXml);
+
+                    _strategy.LogAction("creating a code cache manager");
+                    using (var cacheManager = new CodeCacheManager(_strategy))
+                    {
+                        _strategy.LogAction("ensuring the boot package");
+
+                        var candidate = Assembly.GetEntryAssembly().Location;
+                        var bootPath = cacheManager.EnsureBoot(candidate);
+
+                        if (bootPath == null)
                         {
-                            _environment.LogAction("setting the certificate validator");
-                            ServicePointManager.CheckCertificateRevocationList = true;
-                            ServicePointManager.ServerCertificateValidationCallback = CheckServerCertificate;
+                            _strategy.LogStatus("current process is the appropriate boot process");
+
+                            _strategy.OnVerified();
+                            _strategy.OnStatus("Loading", 0);
+
+                            UpdateInstall(cacheManager, candidate, _options.Keyed.Keys.Contains("install"));
+                            cacheManager.EnsureManifest();
+                            _strategy.OnStatus("Loaded", 1.0);
+                            _strategy.OnSuccess();
+
                         }
                         else
                         {
-                            _environment.LogStatus("skipping server authentication checks");
-                        }
+                            _strategy.LogStatus("current process is not executing the required image");
+                            _strategy.LogAction("switching to image '{0}'", bootPath);
+                            _strategy.OnStatus("Transferring", 0);
 
-                        _environment.LogAction("getting the manifest");
-                        string manifestXml;
-                        using (var ms = new MemoryStream())
-                        {
-                            _environment.GetResource(url + "/info", ms, t => t.StartsWith("text/xml"));
-                            ms.Seek(0, SeekOrigin.Begin);
-                            using (var sr = new StreamReader(ms))
-                                manifestXml = sr.ReadToEnd();
-                        }
-
-                        _environment.LogAction("loading the manifest (first 100 characters are '{0}')",
-                                       manifestXml.Substring(0, 100));
-                        var manifest = ManifestManager.Load(manifestXml);
-
-                        _environment.LogAction("creating a code cache manager");
-                        using (var cacheManager = new CodeCacheManager(manifest, url, _environment))
-                        {
-                            _environment.LogAction("ensuring the boot package");
-
-                            var candidate = Assembly.GetEntryAssembly().Location;
-                            var bootPath = cacheManager.EnsureBoot(candidate);
-
-                            if (bootPath == null)
+                            using (var p = Process.Start(bootPath, string.Join(" ", _args.Select(x => '"' + x + '"'))))
                             {
-                                _environment.LogStatus("current process is the appropriate boot process");
-                                observer.SetRunInfo(manifest.RunInfo);
+                            }
 
-                                string installName;
-                                _options.Keyed.TryGetValue("install:", out installName);
-                                UpdateInstall(cacheManager, candidate, installName);
-                                cacheManager.EnsureManifest();
-                                proceed = true;
-                            }
-                            else
-                            {
-                                _environment.LogStatus("current process is not executing the required image");
-                                _environment.LogAction("switching to image '{0}'", bootPath);
-                                using (var p = Process.Start(bootPath, string.Join(" ", _args.Select(x => '"' + x + '"'))))
-                                {
-                                }
-                            }
+                            _strategy.OnTransfer();
                         }
                     }
                 }
-                catch (Exception ex)
-                {
-                    _environment.LogStatus(ex.ToString());
-                    var s = _environment.GetCurrentState();
-                    observer.Error(ex, s.LastAction, s.Text);
-                }
-                var observerSaysProceed = observer.DismissAndWait(proceed);
-                proceed &= observerSaysProceed;
             }
-            return proceed;
+            catch (Exception ex)
+            {
+                _strategy.OnFailure(ex);
+            }
+
+            return _strategy.WaitToProceed();
         }
 
         private bool CheckServerCertificate(object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors sslPolicyErrors)
         {
             var serverName = (sender is string) ? sender : ((WebRequest)sender).RequestUri.Host;
-            _environment.LogAction("verifying the server certificate for requested server '{0}'", serverName);
+            _strategy.LogAction("verifying the server certificate for requested server '{0}'", serverName);
             if (sslPolicyErrors != SslPolicyErrors.None)
             {
                 var reasons = new List<string>();
@@ -155,21 +139,21 @@ namespace XtallLib
                     reasons.Add(string.Format("the certificate chain has errors ({0})",
                                               string.Join("; ", chain.ChainStatus.Select(x => x.StatusInformation))));
                 }
-                _environment.LogStatus("The server is not trusted: {0}.", string.Join("; ", reasons));
+                _strategy.LogStatus("The server is not trusted: {0}.", string.Join("; ", reasons));
                 return false;
             }
 
-            _environment.LogAction("verifying that actual server '{0}' was trusted", cert.Subject);
+            _strategy.LogAction("verifying that actual server '{0}' was trusted", cert.Subject);
             var m = Regex.Match(cert.Subject, "O=(?'orgid'[^,]+)");
             if (!m.Success)
             {
-                _environment.LogStatus("could not find the organization ID in the certificate subject");
+                _strategy.LogStatus("could not find the organization ID in the certificate subject");
                 return false;
             }
             var g = m.Groups["orgid"];
             if (g == null)
             {
-                _environment.LogStatus("could not find the organization ID in the certificate subject (regex said it was there but didn't return it)");
+                _strategy.LogStatus("could not find the organization ID in the certificate subject (regex said it was there but didn't return it)");
                 return false;
             }
 
@@ -182,24 +166,24 @@ namespace XtallLib
                 return false;
             }
             */
-            _environment.LogStatus("the server is trusted.");
+            _strategy.LogStatus("the server is trusted.");
             return true;
         }
 
-        private void UpdateInstall(CodeCacheManager cacheManager, string sourceFile, string installName)
+        private void UpdateInstall(CodeCacheManager cacheManager, string sourceFile, bool installing)
         {
-            _environment.LogAction("ensuring site folder '{0}'", cacheManager.SiteFolder);
+            _strategy.LogAction("ensuring site folder '{0}'", cacheManager.SiteFolder);
             Directory.CreateDirectory(cacheManager.SiteFolder);
 
             var linkBootPath = Path.Combine(cacheManager.SiteFolder, "start.exe");
-            _environment.LogAction("copying boot file '{0}' to '{1}'", sourceFile, linkBootPath);
+            _strategy.LogAction("copying boot file '{0}' to '{1}'", sourceFile, linkBootPath);
             try
             {
                 File.Copy(sourceFile, linkBootPath, true);
             }
             catch (Exception x)
             {
-                _environment.LogStatus("failed to copy boot file: {0}", x.Message);
+                _strategy.LogStatus("failed to copy boot file: {0}", x.Message);
                 // this is not completely unexpected; it will normally be because another
                 //  instance of the boot file is running from the site folder. It will end
                 //  up completing the copy as part of its update process.
@@ -207,26 +191,27 @@ namespace XtallLib
             }
 
             var manifestPath = Path.Combine(cacheManager.SiteFolder, "manifest.xml");
-            _environment.LogAction("writing current manifest to '{0}'", manifestPath); 
+            _strategy.LogAction("writing current manifest to '{0}'", manifestPath); 
             using (var xw = XmlWriter.Create(manifestPath))
-                ManifestManager.Write(xw, cacheManager.Manifest);
+                ManifestManager.Write(xw, _strategy.Context.Manifest);
 
-            if (installName != null)
+            if (installing)
             {
-                _environment.LogAction("writing current manifest to '{0}'", manifestPath); 
+                var installName = _strategy.Context.Manifest.InstalledDisplayName;
+                _strategy.LogAction("writing current manifest to '{0}'", manifestPath); 
                 var desktopLink = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), installName + ".lnk");
-                _environment.LogAction("creating desktop link '{0}'", desktopLink);
-                ShellLink.CreateShortcut(desktopLink, linkBootPath, args: cacheManager.Url);
+                _strategy.LogAction("creating desktop link '{0}'", desktopLink);
+                ShellLink.CreateShortcut(desktopLink, linkBootPath, args: _strategy.Context.Url);
 
-                var menuPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), cacheManager.Manifest.ProductName);
-                _environment.LogAction("ensuring menu folder '{0}'", menuPath);
+                var menuPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), _strategy.Context.Manifest.ProductName);
+                _strategy.LogAction("ensuring menu folder '{0}'", menuPath);
                 Directory.CreateDirectory(menuPath);
                 
                 var menuLink = Path.Combine(menuPath, installName + ".lnk");
-                _environment.LogAction("creating menu link '{0}'", menuLink);
-                ShellLink.CreateShortcut(menuLink, linkBootPath, args: cacheManager.Url);
+                _strategy.LogAction("creating menu link '{0}'", menuLink);
+                ShellLink.CreateShortcut(menuLink, linkBootPath, args: _strategy.Context.Url);
 
-                _environment.LogAction("writing ARP entries");
+                _strategy.LogAction("writing ARP entries");
                 using (var arpKey = Registry.CurrentUser.CreateSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + cacheManager.UrlKey))
                 {
                     arpKey.SetValue(Paths.ArpDisplayNameValueName, installName);
@@ -240,6 +225,7 @@ namespace XtallLib
                     arpKey.SetValue(Paths.ArpNoRepairValueName, 1);
                     arpKey.SetValue("XtallMenuLink", menuLink);
                     arpKey.SetValue("XtallDesktopLink", desktopLink);
+                    arpKey.SetValue(Paths.ArpCommentsValueName, _strategy.Context.Url);
                 }
             }
         }
@@ -251,7 +237,7 @@ namespace XtallLib
             string desktopLink = null;
             try
             {
-                _environment.LogAction("checking ARP entries");
+                _strategy.LogAction("checking ARP entries");
                 using (var arpKey = Registry.CurrentUser.CreateSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + urlKey))
                 {
                     displayName = (string) arpKey.GetValue(Paths.ArpDisplayNameValueName, "This software ");
@@ -262,13 +248,13 @@ namespace XtallLib
                 if (MessageBoxResult.Yes == MessageBox.Show(string.Format("Do you want to uninstall {0}?", displayName),
                     displayName, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No))
                 {
-                    _environment.LogAction("deleting ARP key");
+                    _strategy.LogAction("deleting ARP key");
                     try { Registry.CurrentUser.DeleteSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + urlKey); }
                     catch (Exception) { /* suppressed */ }
 
                     if (menuLink != null && File.Exists(menuLink))
                     {
-                        _environment.LogAction("deleting menu link '{0}'", menuLink);
+                        _strategy.LogAction("deleting menu link '{0}'", menuLink);
                         try
                         {
                             File.Delete(menuLink);
@@ -281,7 +267,7 @@ namespace XtallLib
 
                     if (desktopLink != null && File.Exists(desktopLink))
                     {
-                        _environment.LogAction("deleting desktop link '{0}'", desktopLink);
+                        _strategy.LogAction("deleting desktop link '{0}'", desktopLink);
                         try
                         {
                             File.Delete(desktopLink);

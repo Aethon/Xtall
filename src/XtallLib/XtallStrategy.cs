@@ -1,10 +1,15 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Cache;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
+using System.Windows;
+using System.Xml;
 
 namespace XtallLib
 {
@@ -19,9 +24,15 @@ namespace XtallLib
             LastAction = lastAction;
         }
     } 
-    
-    class XtallerEnvironment : IXtallEnvironment
+
+    public class XtallStrategy
     {
+        private readonly XtallContext _context = new XtallContext();
+        internal XtallContext InternalContext { get { return _context; } }
+        public IXtallContext Context { get { return _context; } }
+    
+        #region Old IXtallEnvironment Impls
+
         private readonly StringBuilder _logBuilder = new StringBuilder();
 
         [ThreadStatic]
@@ -85,6 +96,47 @@ namespace XtallLib
         public bool FileExists(string filename)
         {
             return File.Exists(filename);
+        }
+
+        #endregion
+
+        protected bool CanProceed { get; set; }
+
+        // Called when this process has been verified and will attempt to run the application
+        public virtual void OnVerified()
+        {
+        }
+
+        // Called to indicate progress
+        public virtual void OnStatus(string message, double progress)
+        {
+        }
+
+        // Called when a fatal error has occurred
+        public virtual void OnFailure(Exception exception)
+        {
+            // TODO: better default message
+            MessageBox.Show(exception.Message);
+            CanProceed = false;
+        }
+
+        // Called when the install/load/uninstall is complete
+        public virtual void OnSuccess()
+        {
+            CanProceed = true;
+        }
+
+        // Called when the install/load is transferring to another instance
+        public virtual void OnTransfer()
+        {
+            CanProceed = false;
+        }
+
+        // Called when all work is done to allow the strategy to complete its UI;
+        //  this call should block until it is safe for the Run method to return
+        public virtual bool WaitToProceed()
+        {
+            return CanProceed;
         }
     }
 }

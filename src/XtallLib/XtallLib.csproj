@@ -44,18 +44,9 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="CantStartDialog.xaml.cs">
-      <DependentUpon>CantStartDialog.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="CantStartViewModel.cs" />
+    <Compile Include="XtallContext.cs" />
     <Compile Include="XtallFileInfo.cs" />
-    <Compile Include="IXtallEnvironment.cs" />
-    <Compile Include="XtallerEnvironment.cs" />
     <Compile Include="XtallManifest.cs" />
-    <Compile Include="IXtallObserver.cs" />
-    <Compile Include="XtallObserverProxy.cs" />
-    <Compile Include="XtallResult.cs" />
-    <Compile Include="XtallInfo.cs" />
     <Compile Include="CodeCacheManager.cs" />
     <Compile Include="Xtaller.cs" />
     <Compile Include="ManifestManager.cs" />
@@ -63,12 +54,7 @@
     <Compile Include="Paths.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="ShellLink.cs" />
-  </ItemGroup>
-  <ItemGroup>
-    <Page Include="CantStartDialog.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </Page>
+    <Compile Include="XtallStrategy.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

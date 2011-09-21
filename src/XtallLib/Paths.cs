@@ -11,7 +11,7 @@ namespace XtallLib
         public readonly string ExecName;
         public readonly string LinkName;
 
-        public static readonly string ArpAlloyClientValueName = "IsAlloyClient";
+        public static readonly string ArpCommentsValueName = "Comments";
         public static readonly string ArpDisplayNameValueName = "DisplayName";
         public static readonly string ArpDisplayVersionValueName = "DisplayVersion";
         public static readonly string ArpDisplayIconValueName = "DisplayIcon";
@@ -20,7 +20,6 @@ namespace XtallLib
         public static readonly string ArpPublisherValueName = "Publisher";
         public static readonly string ArpNoModifyValueName = "NoModify";
         public static readonly string ArpNoRepairValueName = "Norepair";
-
 
         public readonly string RawSoftwareRegistryPath;
         public readonly string SoftwareRegistryPath;

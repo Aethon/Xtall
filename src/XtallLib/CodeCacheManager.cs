@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Cache;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace XtallLib
 {
@@ -13,58 +14,57 @@ namespace XtallLib
     {
         private const string ClientAssetsPath = "client";
 
-        public XtallManifest Manifest { get; private set; }
+     //   public XtallManifest Manifest { get; private set; }
 
         public string ProductFolder { get; private set; }
         public string SiteFolder { get; private set; }
         public string CacheFolder { get; private set; }
         public string RunFolder { get; private set; }
-        public string Url { get; private set; }
         public string UrlKey { get; private set; }
 
-        private readonly IXtallEnvironment _environment;
+        private readonly XtallStrategy _strategy;
 
         private Mutex _mutex;
 
-        public CodeCacheManager(XtallManifest manifest, string url, IXtallEnvironment environment)
+        public CodeCacheManager(XtallStrategy strategy)
         {
-            if (manifest == null)
-                throw new ArgumentNullException("manifest");
-            if (url == null)
-                throw new ArgumentNullException("url");
-            if (environment == null)
-                throw new ArgumentNullException("environment");
-            Manifest = manifest;
-            Url = url;
-            _environment = environment;
+            if (strategy == null)
+                throw new ArgumentNullException("strategy");
+            if (strategy.Context.Url == null)
+                throw new ArgumentNullException("strategy.Context.Url");
+            if (strategy.Context.Manifest == null)
+                throw new ArgumentNullException("strategy.Context.Manifest");
+            _strategy = strategy;
+
+            var manifest = _strategy.Context.Manifest;
 
             if (manifest.ProductName == null)
                 throw new ArgumentNullException("The manifest must specify a product name");
 
-            UrlKey = Uri.EscapeDataString(url.ToLower());
+            UrlKey = Uri.EscapeDataString(strategy.Context.Url.ToLower());
 
-            _environment.LogAction("determining the product folder");
+            _strategy.LogAction("determining the product folder");
             ProductFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), manifest.ProductName);
-            _environment.LogStatus("assigned the product folder as '{0}'", ProductFolder);
+            _strategy.LogStatus("assigned the product folder as '{0}'", ProductFolder);
 
-            _environment.LogAction("determining the site folder");
+            _strategy.LogAction("determining the site folder");
             SiteFolder = Path.Combine(ProductFolder, "Sites", UrlKey);
-            _environment.LogStatus("assigned the site folder as '{0}'", SiteFolder);
+            _strategy.LogStatus("assigned the site folder as '{0}'", SiteFolder);
 
-            _environment.LogAction("determining the cache folder");
+            _strategy.LogAction("determining the cache folder");
             CacheFolder = Path.Combine(ProductFolder, "Cache");
-            _environment.LogStatus("assigned the cache folder as '{0}'", CacheFolder);
+            _strategy.LogStatus("assigned the cache folder as '{0}'", CacheFolder);
 
-            _environment.LogAction("determining the run folder");
+            _strategy.LogAction("determining the run folder");
             RunFolder = Path.Combine(ProductFolder, "Run", manifest.Md5Hash);
-            _environment.LogStatus("assigned the run folder as '{0}'", RunFolder);
+            _strategy.LogStatus("assigned the run folder as '{0}'", RunFolder);
 
-            _environment.LogAction("creating a mutex to guard the cache");
+            _strategy.LogAction("creating a mutex to guard the cache");
             _mutex = new Mutex(false, "XtallCacheGuard:" + manifest.ProductName);
-            _environment.LogAction("acquiring the mutex to guard the cache");
+            _strategy.LogAction("acquiring the mutex to guard the cache");
             try
             {
-                _environment.LogAction("waiting for access to the cache");
+                _strategy.LogAction("waiting for access to the cache");
                 if (!_mutex.WaitOne(TimeSpan.FromSeconds(5)))
                 {
                     _mutex.Dispose();
@@ -76,27 +76,43 @@ namespace XtallLib
             {
                 // suppressed; this is OK (for us...prolly not for the poor sot that died)
             }
-            _environment.LogStatus("acquired access to the cache");
+            _strategy.LogStatus("acquired access to the cache");
         }
 
         public void EnsureManifest()
         {
-            _environment.LogAction("ensuring all manifest requirements");
-            if (!Manifest.Files
-                .AsParallel()
-                .WithExecutionMode(ParallelExecutionMode.ForceParallelism)
-                .WithDegreeOfParallelism(4)
-                .All(x => EnsureFile(x)))
+            _strategy.LogAction("ensuring all manifest requirements");
+            var semaphore = new SemaphoreSlim(4, 4);
+            var count = 0;
+            double total = _strategy.Context.Manifest.Files.Count;
+            var tasks = _strategy.Context.Manifest.Files.Select(x => Task<bool>.Factory.StartNew(() =>
+            {
+                semaphore.Wait();
+                try
+                {
+                    var result = EnsureFile(x);
+                    _strategy.OnStatus("Loading", Interlocked.Increment(ref count) / total);
+                    return result;
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            })).ToArray();
+
+            Task.WaitAll(tasks);
+
+            if (!tasks.All(x => x.Result))
                 throw new ApplicationException("Could not ensure the manifest requirements on the local machine.");
         }
 
         public string EnsureBoot(string candidate = null)
         {
-            _environment.LogAction("ensuring boot manifest requirement");
-            if (!EnsureFile(Manifest.Boot, candidate))
+            _strategy.LogAction("ensuring boot manifest requirement");
+            if (!EnsureFile(_strategy.Context.Manifest.Boot, candidate))
                 throw new ApplicationException("Could not ensure the boot manifest requirement on the local machine.");
 
-            var path = Path.Combine(RunFolder, Manifest.Boot.Filename);
+            var path = Path.Combine(RunFolder, _strategy.Context.Manifest.Boot.Filename);
             return candidate == path ? null : path;
         }
 
@@ -117,27 +133,27 @@ namespace XtallLib
 
                 var source = paths.FirstOrDefault(x =>
                     {
-                        _environment.LogAction("checking for file '{0}' at '{1}'", fileInfo.Filename, x);
+                        _strategy.LogAction("checking for file '{0}' at '{1}'", fileInfo.Filename, x);
                         return CheckFile(x, fileInfo.Md5Hash);
                     });
 
                 if (source == null)
                 {
-                    _environment.LogAction("constructing request URL to download '{0}'", fileInfo.Filename);
+                    _strategy.LogAction("constructing request URL to download '{0}'", fileInfo.Filename);
                     var uri =
                         new Uri(
-                            string.Format("{0}/{1}/{2}", Url, ClientAssetsPath, fileInfo.Filename),
+                            string.Format("{0}/{1}/{2}", _strategy.Context.Url, ClientAssetsPath, fileInfo.Filename),
                             UriKind.Absolute);
 
-                    _environment.LogAction("creating the request for the download ({0})", uri);
+                    _strategy.LogAction("creating the request for the download ({0})", uri);
                     var req = (HttpWebRequest) WebRequest.Create(uri);
                     req.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
                     req.CachePolicy = new RequestCachePolicy(RequestCacheLevel.BypassCache);
 
-                    _environment.LogAction("sending the request");
+                    _strategy.LogAction("sending the request");
                     using (var response = (HttpWebResponse) req.GetResponse())
                     {
-                        _environment.LogAction("Checking the response");
+                        _strategy.LogAction("Checking the response");
                         if (response.StatusCode != HttpStatusCode.OK)
                             throw new ApplicationException(string.Format(
                                 "Request failed with status {0} {1}.",
@@ -145,10 +161,10 @@ namespace XtallLib
                                 response.StatusDescription));
 
                         var folder = Path.GetDirectoryName(cachePath);
-                        _environment.LogAction("ensuring that folder '{0}' exists", folder);
+                        _strategy.LogAction("ensuring that folder '{0}' exists", folder);
                         Directory.CreateDirectory(folder);
 
-                        _environment.LogAction("copying response to '{0}'", cachePath);
+                        _strategy.LogAction("copying response to '{0}'", cachePath);
                         using (var binary = response.GetResponseStream())
                         using (var file = File.Create(cachePath))
                             binary.CopyTo(file);
@@ -157,28 +173,28 @@ namespace XtallLib
                 }
                 else
                 {
-                    _environment.LogStatus("file found at '{0}'", source);
+                    _strategy.LogStatus("file found at '{0}'", source);
                 }
 
                 if (source != path)
                 {
                     var finalFolderXII = Path.GetDirectoryName(path);
-                    _environment.LogAction("ensuring that folder '{0}' exists", finalFolderXII);
+                    _strategy.LogAction("ensuring that folder '{0}' exists", finalFolderXII);
                     Directory.CreateDirectory(finalFolderXII);
-                    _environment.LogAction("copying file '{0}' from '{1}'", fileInfo.Filename, source);
+                    _strategy.LogAction("copying file '{0}' from '{1}'", fileInfo.Filename, source);
                     File.Copy(source, path, true);
                 }
 
-                _environment.LogAction("verifying final file placement");
+                _strategy.LogAction("verifying final file placement");
                 good = CheckFile(path, fileInfo.Md5Hash);
 
-                _environment.LogStatus("file '{0}' {1} verified", fileInfo.Filename, good ? "was" : "WAS NOT");
+                _strategy.LogStatus("file '{0}' {1} verified", fileInfo.Filename, good ? "was" : "WAS NOT");
             }
             catch (Exception x)
             {
                 try
                 {
-                    _environment.LogStatus("file download failed while {0}.\r\n{1}", _environment.GetCurrentState().LastAction, x);
+                    _strategy.LogStatus("file download failed while {0}.\r\n{1}", _strategy.GetCurrentState().LastAction, x);
                 }
                 catch (Exception)
                 {
@@ -197,18 +213,26 @@ namespace XtallLib
             if (md5Hash == null)
                 throw new ArgumentNullException("md5Hash");
 
-            _environment.LogAction("checking file '{0}'", localPath);
+            _strategy.LogAction("checking file '{0}'", localPath);
             var good = false;
             if (File.Exists(localPath))
             {
-                _environment.LogStatus("file exists");
-                _environment.LogAction("checking file hash");
-                good = (ManifestManager.GetFileChecksum(localPath) == md5Hash.ToUpper());
-                _environment.LogStatus("file hash {0} the manifest", good ? "matches" : "does not match");
+                _strategy.LogStatus("file exists");
+                _strategy.LogAction("checking file hash");
+                var existingHash = ManifestManager.GetFileChecksum(localPath);
+                good = (existingHash == md5Hash.ToUpper());
+                if (good)
+                {
+                    _strategy.LogStatus("file hash matches the manifest");
+                }
+                else
+                {
+                    _strategy.LogStatus("file hash {0} does not match the manifest ({1})", existingHash, md5Hash);
+                }
             }
             else
             {
-                _environment.LogStatus("file does not exist");
+                _strategy.LogStatus("file does not exist");
             }
             return good;
         }
