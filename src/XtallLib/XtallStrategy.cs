@@ -30,7 +30,20 @@ namespace XtallLib
         private readonly XtallContext _context = new XtallContext();
         internal XtallContext InternalContext { get { return _context; } }
         public IXtallContext Context { get { return _context; } }
-    
+
+        protected readonly CookieContainer Cookies = new CookieContainer();
+
+        public virtual HttpWebRequest CreateHttpRequest(Uri uri)
+        {
+            var request = (HttpWebRequest)WebRequest.Create(uri);
+            request.CookieContainer = Cookies;
+            request.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
+            request.CachePolicy = new RequestCachePolicy(RequestCacheLevel.BypassCache);
+            request.AllowAutoRedirect = true;
+
+            return request;
+        }
+
         #region Old IXtallEnvironment Impls
 
         private readonly StringBuilder _logBuilder = new StringBuilder();
@@ -71,10 +84,7 @@ namespace XtallLib
         public void GetResource(string url, Stream destination, Func<string, bool> contentTypePredicate = null)
         {
             LogAction("creating the request for ({0})", url);
-            var req = (HttpWebRequest)WebRequest.Create(url);
-            req.AllowAutoRedirect = true;
-            req.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
-            req.CachePolicy = new RequestCachePolicy(RequestCacheLevel.BypassCache);
+            var req = CreateHttpRequest(new Uri(url));
 
             LogAction("sending the request");
             using (var response = (HttpWebResponse)req.GetResponse())
@@ -99,6 +109,8 @@ namespace XtallLib
         }
 
         #endregion
+
+        #region Sequence Notifications
 
         protected bool CanProceed { get; set; }
 
@@ -138,5 +150,37 @@ namespace XtallLib
         {
             return CanProceed;
         }
+
+        #endregion
+
+        #region Utilities
+
+        public virtual long CopyWithProgress(Stream source, Stream dest, int bufferSize, Action<long, long> progressAction)
+        {
+            if (source == null)
+                throw new ArgumentNullException("source");
+            if (dest == null)
+                throw new ArgumentNullException("dest");
+            if (bufferSize <= 0)
+                throw new ArgumentException("bufferSize must be greater than zero");
+            
+            progressAction = progressAction ?? ((d,t) => {});
+
+            long total = 0;
+            var buffer = new byte[bufferSize];
+            while (true)
+            {
+                var count = source.Read(buffer, 0, bufferSize);
+                if (count == 0)
+                    break;
+                dest.Write(buffer, 0, count);
+                total += count;
+                progressAction(count, total);
+            }
+
+            return total;
+        }
+
+        #endregion
     }
 }

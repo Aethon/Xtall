@@ -14,8 +14,6 @@ namespace XtallLib
     {
         private const string ClientAssetsPath = "client";
 
-     //   public XtallManifest Manifest { get; private set; }
-
         public string ProductFolder { get; private set; }
         public string SiteFolder { get; private set; }
         public string CacheFolder { get; private set; }
@@ -69,7 +67,7 @@ namespace XtallLib
                 {
                     _mutex.Dispose();
                     _mutex = null;
-                    throw new Exception("In use!"); // TODO: much better
+                    throw new Exception("Another instance of this application is currently updating your computer. You may retry after it has finished.");
                 }
             }
             catch (AbandonedMutexException)
@@ -82,28 +80,32 @@ namespace XtallLib
         public void EnsureManifest()
         {
             _strategy.LogAction("ensuring all manifest requirements");
-            var semaphore = new SemaphoreSlim(4, 4);
-            var count = 0;
-            double total = _strategy.Context.Manifest.Files.Count;
-            var tasks = _strategy.Context.Manifest.Files.Select(x => Task<bool>.Factory.StartNew(() =>
+            var files = _strategy.Context.Manifest.Files;
+            long count = 0;
+            double total = files.Sum(x => x.ByteCount);
+
+            using (var semaphore = new SemaphoreSlim(4, 4))
             {
-                semaphore.Wait();
-                try
+                var tasks = files.Select(x => Task<bool>.Factory.StartNew(() =>
                 {
-                    var result = EnsureFile(x);
-                    _strategy.OnStatus("Loading", Interlocked.Increment(ref count) / total);
-                    return result;
-                }
-                finally
-                {
-                    semaphore.Release();
-                }
-            })).ToArray();
+                    semaphore.Wait();
+                    try
+                    {
+                        var result = EnsureFile(x,
+                            progressAction: (d, t) => _strategy.OnStatus("Loading", Interlocked.Add(ref count, d) / total));
+                        return result;
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                })).ToArray();
 
-            Task.WaitAll(tasks);
+                Task.WaitAll(tasks);
 
-            if (!tasks.All(x => x.Result))
-                throw new ApplicationException("Could not ensure the manifest requirements on the local machine.");
+                if (!tasks.All(x => x.Result))
+                    throw new ApplicationException("Could not ensure the manifest requirements on the local machine.");
+            }
         }
 
         public string EnsureBoot(string candidate = null)
@@ -116,10 +118,49 @@ namespace XtallLib
             return candidate == path ? null : path;
         }
 
-        private bool EnsureFile(XtallFileInfo fileInfo, string candidate = null)
+        public void Clean()
+        {
+            var activeManifests = Directory.EnumerateDirectories(SiteFolder)
+                .SelectMany(x => Directory.EnumerateFiles(x, "manifest.xml")).
+                Select(x => ManifestManager.Load(File.ReadAllText(x)))
+                .ToArray();
+
+            // drop inactive run folders
+            foreach (var loser in Directory.EnumerateDirectories(RunFolder)
+                .Except(activeManifests.Select(x => Path.Combine(RunFolder, x.Md5Hash))))
+            {
+                try
+                {
+                    Directory.Delete(loser, true);
+                }
+                catch (Exception)
+                {
+                    // suppressed...we will get them next time
+                }
+            }
+
+            // drop inactive cache folders
+            foreach (var loser in Directory.EnumerateDirectories(CacheFolder)
+                .Except(activeManifests.SelectMany(x => x.Files)
+                .Select(x => Path.Combine(CacheFolder, x.Md5Hash))))
+            {
+                try
+                {
+                    Directory.Delete(loser, true);
+                }
+                catch (Exception)
+                {
+                    // suppressed...we will get them next time
+                }
+            }
+        }
+
+        private bool EnsureFile(XtallFileInfo fileInfo, string candidate = null, Action<long, long> progressAction = null)
         {
             if (fileInfo == null)
                 throw new ArgumentNullException("fileInfo");
+
+            progressAction = progressAction ?? ((d, t) => { });
 
             bool good;
             try
@@ -146,9 +187,7 @@ namespace XtallLib
                             UriKind.Absolute);
 
                     _strategy.LogAction("creating the request for the download ({0})", uri);
-                    var req = (HttpWebRequest) WebRequest.Create(uri);
-                    req.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
-                    req.CachePolicy = new RequestCachePolicy(RequestCacheLevel.BypassCache);
+                    var req = _strategy.CreateHttpRequest(uri);
 
                     _strategy.LogAction("sending the request");
                     using (var response = (HttpWebResponse) req.GetResponse())
@@ -167,13 +206,14 @@ namespace XtallLib
                         _strategy.LogAction("copying response to '{0}'", cachePath);
                         using (var binary = response.GetResponseStream())
                         using (var file = File.Create(cachePath))
-                            binary.CopyTo(file);
+                            _strategy.CopyWithProgress(binary, file, 50000, progressAction);
                         source = cachePath;
                     }
                 }
                 else
                 {
                     _strategy.LogStatus("file found at '{0}'", source);
+                    progressAction(fileInfo.ByteCount, fileInfo.ByteCount);
                 }
 
                 if (source != path)
@@ -187,7 +227,6 @@ namespace XtallLib
 
                 _strategy.LogAction("verifying final file placement");
                 good = CheckFile(path, fileInfo.Md5Hash);
-
                 _strategy.LogStatus("file '{0}' {1} verified", fileInfo.Filename, good ? "was" : "WAS NOT");
             }
             catch (Exception x)

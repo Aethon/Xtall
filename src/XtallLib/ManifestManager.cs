@@ -20,9 +20,9 @@ namespace XtallLib
             var doc = new XmlDocument();
             doc.LoadXml(manifestXml);
 
-            var man = (XmlElement) doc.SelectSingleNode("/AlloyManifest");
+            var man = (XmlElement) doc.SelectSingleNode("/XtallManifest");
             if (man == null)
-                throw new ApplicationException("Document is missing the AlloyManifest element");
+                throw new ApplicationException("Document is missing the XtallManifest element");
             var boot = GetRequiredAttribute(man, "Boot");
             var productName = GetRequiredAttribute(man, "ProductName");
 
@@ -40,8 +40,9 @@ namespace XtallLib
         {
             var filename = GetRequiredAttribute(element, "Filename");
             var md5Hash = GetRequiredAttribute(element, "Md5Hash");
+            var byteCount = long.Parse(GetRequiredAttribute(element, "ByteCount"));
 
-            return new XtallFileInfo(filename, md5Hash);
+            return new XtallFileInfo(filename, md5Hash, byteCount);
         }
 
         private static string GetRequiredAttribute(XmlElement element, string name)
@@ -83,7 +84,7 @@ namespace XtallLib
             if (ignoreRegex != null && ignoreRegex.IsMatch(localPath))
                 return null;
 
-            return new XtallFileInfo(localPath, GetFileChecksum(filename));
+            return new XtallFileInfo(localPath, GetFileChecksum(filename), new FileInfo(filename).Length);
         }
 
         #endregion
@@ -95,7 +96,7 @@ namespace XtallLib
             if (manifest == null)
                 throw new ArgumentException("manifest");
 
-            writer.WriteStartElement("AlloyManifest");
+            writer.WriteStartElement("XtallManifest");
             {
                 writer.WriteAttributeString("Boot", manifest.Boot.Filename);
                 writer.WriteAttributeString("ProductName", manifest.ProductName);
@@ -114,6 +115,7 @@ namespace XtallLib
                     {
                         writer.WriteAttributeString("Filename", x.Filename);
                         writer.WriteAttributeString("Md5Hash", x.Md5Hash);
+                        writer.WriteAttributeString("ByteCount", x.ByteCount.ToString());
                     }
                     writer.WriteEndElement();
                 }

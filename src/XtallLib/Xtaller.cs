@@ -278,6 +278,7 @@ namespace XtallLib
                         }
                     }
 
+                    
                     MessageBox.Show(string.Format("{0} has been uninstalled.", displayName), displayName, MessageBoxButton.OK, MessageBoxImage.Information);
                 }
             }
