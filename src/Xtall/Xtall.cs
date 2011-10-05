@@ -86,7 +86,13 @@ namespace Xtall
                         shuttleStream.CopyTo(setupStream);
                     }
 
-                    var passenger = File.ReadAllBytes(Path.Combine(sourceFolder, options.Keyed["boot:"]));
+                    string passengerFile;
+                    if (options.Keyed.ContainsKey("passenger:"))
+                        passengerFile = options.Keyed["passenger:"];
+                    else
+                        passengerFile = options.Keyed["boot:"];
+
+                    var passenger = File.ReadAllBytes(Path.Combine(sourceFolder, passengerFile));
                     var pin = GCHandle.Alloc(passenger, GCHandleType.Pinned);
 
                     var handle = BeginUpdateResource(setup, false);

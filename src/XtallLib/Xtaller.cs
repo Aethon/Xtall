@@ -40,7 +40,7 @@ namespace XtallLib
                     throw new ArgumentException("Site URL was not specified on the command line");
 
                 _strategy.InternalContext.Url = _options.Loose[0];
-                var @unsafe = new Uri(_strategy.Context.Url).Scheme != "https";
+                var @unsafe = true; // TODO get the strategy to handle this new Uri(_strategy.Context.Url).Scheme != "https";
 
                 // TODO: block unsafe unless environment is set up for it
                 if (_options.Keyed.ContainsKey("debug:"))

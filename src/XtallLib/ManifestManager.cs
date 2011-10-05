@@ -27,7 +27,7 @@ namespace XtallLib
             var productName = GetRequiredAttribute(man, "ProductName");
 
             var installedDisplayName = man.GetAttribute("InstalledDisplayName");
-            var runInfo = (XmlElement)man.SelectSingleNode("/RunInfo");
+            var runInfo = (XmlElement)man.SelectSingleNode("RunInfo/*");
             
             var files = man.SelectNodes("File")
                 .OfType<XmlElement>()

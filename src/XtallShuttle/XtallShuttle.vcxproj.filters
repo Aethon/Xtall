@@ -16,6 +16,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="manifest_xpca.xml" />
+    <None Include="..\..\lib\DotNet40WebInstaller\dotNetFx40_Full_setup.exe" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Resource.h">

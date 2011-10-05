@@ -221,7 +221,7 @@ namespace XtallServer
                     runInfoElement = doc.CreateElement("RunInfo");
                     root.PrependChild(runInfoElement);
                 }
-                runInfoElement.PrependChild(info.RunInfo.CloneNode(true));
+                runInfoElement.PrependChild(doc.ImportNode(info.RunInfo, true));
             }
 
             var response = context.Response;

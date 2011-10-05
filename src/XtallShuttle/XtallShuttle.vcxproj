@@ -96,6 +96,7 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <None Include="..\..\lib\DotNet40WebInstaller\dotNetFx40_Full_setup.exe" />
     <None Include="manifest_xpca.xml">
       <SubType>Designer</SubType>
     </None>
