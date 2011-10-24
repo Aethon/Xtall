@@ -52,6 +52,8 @@ bool RunEmbeddedExecutable(LPCSTR resourceName, LPCSTR parameters)
 {
 	HGLOBAL passengerHandle = NULL;
 	HANDLE exeFileHandle = NULL;
+	SHELLEXECUTEINFO sei;
+	memset(&sei, 0, sizeof(sei));
 
 	try
 	{
@@ -82,16 +84,20 @@ bool RunEmbeddedExecutable(LPCSTR resourceName, LPCSTR parameters)
 		FreeResource(passengerHandle);
 		passengerHandle = NULL;
 
-		SHELLEXECUTEINFO sei;
-		memset(&sei, 0, sizeof(sei));
 		sei.cbSize = sizeof(sei);
-		sei.fMask = SEE_MASK_NOASYNC;
+		sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_NOCLOSEPROCESS;
 		sei.lpVerb = "open";
 		sei.lpFile = tempFilename;
 		sei.lpParameters = parameters;
 		sei.nShow = SW_SHOWNORMAL;
 
-		return ShellExecuteEx(&sei) != FALSE;
+		bool result = ShellExecuteEx(&sei) != FALSE && sei.hProcess;
+		if (result)
+		{
+			::WaitForSingleObject(sei.hProcess, INFINITE);
+			::CloseHandle(sei.hProcess);
+			sei.hProcess = NULL;
+		}
 	}
 	catch (...)
 	{
@@ -99,6 +105,8 @@ bool RunEmbeddedExecutable(LPCSTR resourceName, LPCSTR parameters)
 			CloseHandle(exeFileHandle);
 		if (passengerHandle)
 			FreeResource(passengerHandle);
+		if (sei.hProcess)
+			CloseHandle(sei.hProcess);
 		throw;
 	}
 }
@@ -144,7 +152,7 @@ void EnsureFramework()
 	{
 		if (!TestFramework())
 		{
-			RunEmbeddedExecutable("IDR_FRAMEWORK", "/passive /showfinalerror /norestart");
+			RunEmbeddedExecutable("IDR_FRAMEWORK", "/showfinalerror /norestart /passive");
 		}
 
 		if (!TestFramework())
